@@ -48,7 +48,7 @@ extension TemplateRenderer {
     /// See `ViewRenderer`.
     public func render<E>(_ path: String, _ context: E, userInfo: [AnyHashable: Any]) -> Future<View> where E: Encodable {
         do {
-            return try TemplateDataEncoder().encode(context, on: self.container).flatMap { context in
+            return try TemplateDataEncoder().encode(context, on: self.container, userInfo: _mapUserInfo(userInfo)).flatMap { context in
                 return self.render(path, context, userInfo: userInfo)
             }
         } catch {
@@ -63,7 +63,7 @@ extension TemplateRenderer {
     /// - parameters:
     ///     - path: Path to file contianing raw template bytes.
     ///     - context: `TemplateData` to expose as context to the template.
-    ///     - userInfo: User-defined storage.
+    ///     - userInfo: User-defined storage. Data keyed by `CodingUserInfoKey` keys will be available via `Encoder`.userInfo.
     /// - returns: `Future` containing the rendered `View`.
     public func render(_ path: String, _ context: TemplateData, userInfo: [AnyHashable: Any] = [:]) -> Future<View> {
         do {
@@ -96,11 +96,11 @@ extension TemplateRenderer {
     /// - parameters:
     ///     - template: Raw template bytes.
     ///     - context: `Encodable` item that will be encoded to `TemplateData` and used as template context.
-    ///     - userInfo: User-defined storage.
+    ///     - userInfo: User-defined storage. Data keyed by `CodingUserInfoKey` keys will be available via `Encoder`.userInfo.
     /// - returns: `Future` containing the rendered `View`.
     public func render<E>(template: Data, _ context: E, userInfo: [AnyHashable: Any] = [:]) -> Future<View> where E: Encodable {
         do {
-            return try TemplateDataEncoder().encode(context, on: self.container).flatMap { context in
+            return try TemplateDataEncoder().encode(context, on: self.container, userInfo: _mapUserInfo(userInfo)).flatMap { context in
                 return self.render(template: template, context, userInfo: userInfo)
             }
         } catch {
@@ -141,5 +141,13 @@ extension TemplateRenderer {
     private func _parse(_ template: Data, file: String) throws -> [TemplateSyntax] {
         let scanner = TemplateByteScanner(data: template, file: file)
         return try parser.parse(scanner: scanner)
+    }
+    
+    /// Filters `CodingUserInfoKey` keyed information to pass to `TemplateData`.encode()
+    private func _mapUserInfo(_ userInfo: [AnyHashable: Any]) -> [CodingUserInfoKey: Any] {
+        let filteredEntries = userInfo.filter { $0.key as? CodingUserInfoKey != nil }
+        let codingUserInfoKeyEntries = filteredEntries.map { ($0.key as! CodingUserInfoKey, $0.value) }
+            
+        return Dictionary(uniqueKeysWithValues: codingUserInfoKeyEntries)
     }
 }
