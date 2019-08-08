@@ -4,13 +4,13 @@ public final class TemplateDataEncoder {
     public init() {}
 
     /// Encode an `Encodable` item to `TemplateData`.
-    public func encode<E>(_ encodable: E, on worker: Worker) throws -> Future<TemplateData> where E: Encodable {
+    public func encode<E>(_ encodable: E, on worker: Worker, userInfo: [CodingUserInfoKey: Any] = [:]) throws -> Future<TemplateData> where E: Encodable {
         if let representable = encodable as? TemplateDataRepresentable {
             // Shortcut if the argument is "trivially" representable as `TemplateData`.
             return worker.future(try representable.convertToTemplateData())
         }
 
-        let encoder = _TemplateDataEncoder(eventLoop: worker.eventLoop)
+        let encoder = _TemplateDataEncoder(eventLoop: worker.eventLoop, userInfo: userInfo)
         try encodable.encode(to: encoder)
         return encoder.resolve(on: worker)
     }
@@ -51,15 +51,13 @@ fileprivate final class DictionaryStorage: TemplateDataResolvable {
 fileprivate final class _TemplateDataEncoder: Encoder, FutureEncoder, TemplateDataResolvable {
     let codingPath: [CodingKey]
     let eventLoop: EventLoop
-    var userInfo: [CodingUserInfoKey: Any] {
-        return [:]
-    }
-
+    let userInfo: [CodingUserInfoKey: Any]
     var data: TemplateDataResolvable?
 
-    init(eventLoop: EventLoop, codingPath: [CodingKey] = []) {
+    init(eventLoop: EventLoop, codingPath: [CodingKey] = [], userInfo: [CodingUserInfoKey: Any]) {
         self.eventLoop = eventLoop
         self.codingPath = codingPath
+        self.userInfo = userInfo
     }
 
     func container<Key: CodingKey>(keyedBy type: Key.Type) -> KeyedEncodingContainer<Key> {
@@ -73,12 +71,12 @@ fileprivate final class _TemplateDataEncoder: Encoder, FutureEncoder, TemplateDa
         // Using the same dictionary storage for multiple subsequent calls to `container(keyedBy:)` allows us to store
         // all of those calls' data to the same underlying dictionary in the end rather than discard all previously
         // written data. (See `testEncodeSuperCustomImplementation` for an example where this is relevant.)
-        let container = _TemplateDataKeyedEncoder<Key>(codingPath: codingPath, writingTo: storage, eventLoop: eventLoop)
+        let container = _TemplateDataKeyedEncoder<Key>(codingPath: codingPath, writingTo: storage, eventLoop: eventLoop, userInfo: userInfo)
         return KeyedEncodingContainer(container)
     }
 
     func unkeyedContainer() -> UnkeyedEncodingContainer {
-        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath, eventLoop: eventLoop)
+        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath, eventLoop: eventLoop, userInfo: userInfo)
         self.data = container
         return container
     }
@@ -90,8 +88,10 @@ fileprivate final class _TemplateDataEncoder: Encoder, FutureEncoder, TemplateDa
     }
 
     func encodeFuture<E>(_ future: EventLoopFuture<E>) throws where E : Encodable {
+        let userInfo = self.userInfo
+        
         self.data = future.flatMap(to: TemplateData.self) { encodable in
-            try TemplateDataEncoder().encode(encodable, on: self.eventLoop)
+            try TemplateDataEncoder().encode(encodable, on: self.eventLoop, userInfo: userInfo)
         }
     }
 
@@ -130,15 +130,17 @@ fileprivate final class _TemplateDataKeyedEncoder<K>: KeyedEncodingContainerProt
     let codingPath: [CodingKey]
     let eventLoop: EventLoop
     let storage: DictionaryStorage
+    let userInfo: [CodingUserInfoKey: Any]
 
-    init(codingPath: [CodingKey], writingTo storage: DictionaryStorage, eventLoop: EventLoop) {
+    init(codingPath: [CodingKey], writingTo storage: DictionaryStorage, eventLoop: EventLoop, userInfo: [CodingUserInfoKey: Any]) {
         self.codingPath = codingPath
         self.eventLoop = eventLoop
         self.storage = storage
+        self.userInfo = userInfo
     }
 
     func superEncoder() -> Encoder {
-        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [BasicKey("super")])
+        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [BasicKey("super")], userInfo: userInfo)
         self.storage.data["super"] = encoder
         return encoder
     }
@@ -151,19 +153,19 @@ fileprivate final class _TemplateDataKeyedEncoder<K>: KeyedEncodingContainerProt
         where NestedKey : CodingKey
     {
         let container = _TemplateDataKeyedEncoder<NestedKey>(
-            codingPath: codingPath + [key], writingTo: .init(), eventLoop: eventLoop)
+            codingPath: codingPath + [key], writingTo: .init(), eventLoop: eventLoop, userInfo: userInfo)
         self.storage.data[key.stringValue] = container
         return KeyedEncodingContainer(container)
     }
 
     func nestedUnkeyedContainer(forKey key: K) -> UnkeyedEncodingContainer {
-        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath + [key], eventLoop: eventLoop)
+        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath + [key], eventLoop: eventLoop, userInfo: userInfo)
         self.storage.data[key.stringValue] = container
         return container
     }
 
     func superEncoder(forKey key: K) -> Encoder {
-        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [key])
+        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [key], userInfo: userInfo)
         self.storage.data[key.stringValue] = encoder
         return encoder
     }
@@ -172,7 +174,7 @@ fileprivate final class _TemplateDataKeyedEncoder<K>: KeyedEncodingContainerProt
         if let data = value as? TemplateDataRepresentable {
             self.storage.data[key.stringValue] = try data.convertToTemplateData()
         } else {
-            let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [key])
+            let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath + [key], userInfo: userInfo)
             try value.encode(to: encoder)
             self.storage.data[key.stringValue] = encoder
         }
@@ -187,13 +189,15 @@ fileprivate final class _TemplateDataKeyedEncoder<K>: KeyedEncodingContainerProt
 fileprivate final class _TemplateDataUnkeyedEncoder: UnkeyedEncodingContainer, TemplateDataResolvable {
     let codingPath: [CodingKey]
     let eventLoop: EventLoop
+    let userInfo: [CodingUserInfoKey: Any]
     var data: [TemplateDataResolvable]
 
     var count: Int { return data.count }
 
-    init(codingPath: [CodingKey], eventLoop: EventLoop) {
+    init(codingPath: [CodingKey], eventLoop: EventLoop, userInfo: [CodingUserInfoKey: Any]) {
         self.codingPath = codingPath
         self.eventLoop = eventLoop
+        self.userInfo = userInfo
         self.data = []
     }
 
@@ -205,25 +209,25 @@ fileprivate final class _TemplateDataUnkeyedEncoder: UnkeyedEncodingContainer, T
         where NestedKey: CodingKey
     {
         let container = _TemplateDataKeyedEncoder<NestedKey>(
-            codingPath: codingPath, writingTo: .init(), eventLoop: eventLoop)
+            codingPath: codingPath, writingTo: .init(), eventLoop: eventLoop, userInfo: userInfo)
         self.data.append(container)
         return KeyedEncodingContainer(container)
     }
 
     func nestedUnkeyedContainer() -> UnkeyedEncodingContainer {
-        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath, eventLoop: eventLoop)
+        let container = _TemplateDataUnkeyedEncoder(codingPath: codingPath, eventLoop: eventLoop, userInfo: userInfo)
         self.data.append(container)
         return container
     }
 
     func superEncoder() -> Encoder {
-        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath)
+        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath, userInfo: userInfo)
         self.data.append(encoder)
         return encoder
     }
 
     func encode<T>(_ value: T) throws where T: Encodable {
-        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath)
+        let encoder = _TemplateDataEncoder(eventLoop: eventLoop, codingPath: codingPath, userInfo: userInfo)
         try value.encode(to: encoder)
         self.data.append(encoder)
     }

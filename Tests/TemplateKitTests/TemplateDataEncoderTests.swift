@@ -352,6 +352,27 @@ class TemplateDataEncoderTests: XCTestCase {
         XCTAssertNil(scanner.peek(by: -1))
         XCTAssertNil(scanner.peek(by: 1))
     }
+    
+    func testUserInfoEncoder() throws {
+        class UserInfoTest: Encodable {
+            var userInfoProvided: Bool = false
+            
+            static let testKey = CodingUserInfoKey(rawValue: "testUserInfo-key")!
+            static let testValue = "testUserInfo-Value"
+            static let testUserInfo: [CodingUserInfoKey: Any] = [testKey : testValue]
+            
+            public func encode(to encoder: Encoder) throws {
+                if let userInfo = encoder.userInfo[UserInfoTest.testKey] as? String, userInfo == UserInfoTest.testValue {
+                    userInfoProvided = true
+                }
+            }
+        }
+
+        let testModel = UserInfoTest()
+        
+        _ = try TemplateDataEncoder().testEncode(testModel, userInfo: UserInfoTest.testUserInfo)
+        XCTAssertTrue(testModel.userInfoProvided)
+    }
 }
 
 // MARK: - Performance
@@ -433,11 +454,12 @@ extension TemplateDataEncoderTests {
         ("testEncodingPerformanceExampleModelJSONBaseline", testEncodingPerformanceExampleModelJSONBaseline),
         ("testEncodingPerformanceExampleModel", testEncodingPerformanceExampleModel),
         ("testTemplabeByteScannerPeak", testTemplabeByteScannerPeak),
+        ("testUserInfoEncoder", testUserInfoEncoder),
     ]
 }
 
 extension TemplateDataEncoder {
-    func testEncode<E>(_ encodable: E, on eventLoop: EventLoop = EmbeddedEventLoop()) throws -> TemplateData where E: Encodable {
-        return try encode(encodable, on: eventLoop).wait()
+    func testEncode<E>(_ encodable: E, on eventLoop: EventLoop = EmbeddedEventLoop(), userInfo: [CodingUserInfoKey: Any] = [:]) throws -> TemplateData where E: Encodable {
+        return try encode(encodable, on: eventLoop, userInfo: userInfo).wait()
     }
 }
