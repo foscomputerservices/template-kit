@@ -370,7 +370,7 @@ class TemplateDataEncoderTests: XCTestCase {
 
         let testModel = UserInfoTest()
         
-        _ = try TemplateDataEncoder().testEncode(testModel, userInfo: UserInfoTest.testUserInfo)
+        _ = try TemplateDataEncoder(userInfo: UserInfoTest.testUserInfo).testEncode(testModel)
         XCTAssertTrue(testModel.userInfoProvided)
     }
 }
@@ -459,7 +459,7 @@ extension TemplateDataEncoderTests {
 }
 
 extension TemplateDataEncoder {
-    func testEncode<E>(_ encodable: E, on eventLoop: EventLoop = EmbeddedEventLoop(), userInfo: [CodingUserInfoKey: Any] = [:]) throws -> TemplateData where E: Encodable {
-        return try encode(encodable, on: eventLoop, userInfo: userInfo).wait()
+    func testEncode<E>(_ encodable: E, on eventLoop: EventLoop = EmbeddedEventLoop()) throws -> TemplateData where E: Encodable {
+        return try encode(encodable, on: eventLoop).wait()
     }
 }

@@ -1,10 +1,14 @@
 /// Converts `Encodable` objects to `TemplateData`.
 public final class TemplateDataEncoder {
+    public let userInfo: [CodingUserInfoKey: Any]
+    
     /// Create a new `TemplateDataEncoder`.
-    public init() {}
+    public init(userInfo: [CodingUserInfoKey: Any] = [:]) {
+        self.userInfo = userInfo
+    }
 
     /// Encode an `Encodable` item to `TemplateData`.
-    public func encode<E>(_ encodable: E, on worker: Worker, userInfo: [CodingUserInfoKey: Any] = [:]) throws -> Future<TemplateData> where E: Encodable {
+    public func encode<E>(_ encodable: E, on worker: Worker) throws -> Future<TemplateData> where E: Encodable {
         if let representable = encodable as? TemplateDataRepresentable {
             // Shortcut if the argument is "trivially" representable as `TemplateData`.
             return worker.future(try representable.convertToTemplateData())
@@ -91,7 +95,7 @@ fileprivate final class _TemplateDataEncoder: Encoder, FutureEncoder, TemplateDa
         let userInfo = self.userInfo
         
         self.data = future.flatMap(to: TemplateData.self) { encodable in
-            try TemplateDataEncoder().encode(encodable, on: self.eventLoop, userInfo: userInfo)
+            try TemplateDataEncoder(userInfo: userInfo).encode(encodable, on: self.eventLoop)
         }
     }
 

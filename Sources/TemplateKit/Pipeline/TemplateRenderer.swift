@@ -48,7 +48,7 @@ extension TemplateRenderer {
     /// See `ViewRenderer`.
     public func render<E>(_ path: String, _ context: E, userInfo: [AnyHashable: Any]) -> Future<View> where E: Encodable {
         do {
-            return try TemplateDataEncoder().encode(context, on: self.container, userInfo: _mapUserInfo(userInfo)).flatMap { context in
+            return try TemplateDataEncoder(userInfo: _mapUserInfo(userInfo)).encode(context, on: self.container).flatMap { context in
                 return self.render(path, context, userInfo: userInfo)
             }
         } catch {
@@ -100,7 +100,7 @@ extension TemplateRenderer {
     /// - returns: `Future` containing the rendered `View`.
     public func render<E>(template: Data, _ context: E, userInfo: [AnyHashable: Any] = [:]) -> Future<View> where E: Encodable {
         do {
-            return try TemplateDataEncoder().encode(context, on: self.container, userInfo: _mapUserInfo(userInfo)).flatMap { context in
+            return try TemplateDataEncoder(userInfo: _mapUserInfo(userInfo)).encode(context, on: self.container).flatMap { context in
                 return self.render(template: template, context, userInfo: userInfo)
             }
         } catch {
